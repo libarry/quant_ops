@@ -28,12 +28,23 @@ if cuda_available:
 
     # CUDA 内核文件路径
     cuda_kernel_path = "src/quant_ops/ops/quantization/flatquant/kernels/cuda_quant_kernel.cu"
+    int4_matmul_kernel_path = "src/quant_ops/ops/quantization/int4_matmul/kernels/cuda_int4_matmul_kernel.cu"
 
     # 定义扩展模块
     ext_modules = [
         cpp_extension.CUDAExtension(
             name="quant_ops.ops.quantization.flatquant.kernels.cuda_quant_ops",
             sources=[cuda_kernel_path],
+            extra_compile_args={
+                "cxx": cxx_flags,
+                "nvcc": cuda_flags
+            },
+            include_dirs=cpp_extension.include_paths(),
+            libraries=['cublas', 'curand'],
+        ),
+        cpp_extension.CUDAExtension(
+            name="quant_ops.ops.quantization.int4_matmul.kernels.cuda_int4_matmul_ops",
+            sources=[int4_matmul_kernel_path],
             extra_compile_args={
                 "cxx": cxx_flags,
                 "nvcc": cuda_flags

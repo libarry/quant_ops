@@ -11,6 +11,11 @@ from .ops.quantization.flatquant import (
     flatquant_dynamic_quantize,
     dequantize_int4,
 )
+from .ops.quantization.int4_matmul import (
+    int4_matmul_cuda,
+    int4_matmul_pytorch,
+    int4_matmul,
+)
 from .utils.decompose import get_decompose_dim
 
 # 检查CUDA算子可用性
@@ -25,6 +30,9 @@ __all__ = [
     "flatquant_pytorch",
     "flatquant_dynamic_quantize",
     "dequantize_int4",
+    "int4_matmul_cuda",
+    "int4_matmul_pytorch",
+    "int4_matmul",
     "CUDA_AVAILABLE",
     "get_decompose_dim",
 ] 
