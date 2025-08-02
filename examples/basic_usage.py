@@ -76,7 +76,7 @@ def main():
             cuda_quantized, cuda_scales = flatquant_cuda(input_tensor, left_trans, right_trans)
         torch.cuda.synchronize()
         cuda_time = (time.time() - start) / n_runs
-        breakpoint()
+
         print(f"CUDA 实现:")
         print(f"  时间: {cuda_time*1000:.2f}ms")
         print(f"  加速比: {pytorch_time/cuda_time:.1f}x")
