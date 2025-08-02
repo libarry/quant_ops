@@ -25,7 +25,7 @@ def main():
     print(f"CUDA 算子可用: {CUDA_KERNELS_AVAILABLE}")
     
     # 测试参数
-    batch_tokens = 512
+    batch_tokens = 16384
     features = 4096
     M, N = 64, 64  # M * N = features
     
@@ -50,7 +50,7 @@ def main():
         torch.cuda.synchronize()
     
     # 性能测试
-    n_runs = 20
+    n_runs = 10
     
     # PyTorch 性能测试
     print("\n测试 PyTorch 实现...")

@@ -36,7 +36,7 @@ __device__ inline float atomicMin_float(float* address, float val) {
     return __int_as_float(old);
 }
 
-// Kronecker 矩阵乘法 CUDA 内核
+// 分步骤的 Kronecker 矩阵乘法 CUDA 内核 (先右乘再左乘)
 template<typename T>
 __global__ void kronecker_matmul_kernel(
     const T* __restrict__ input,        // [batch_tokens, M, N]
@@ -49,45 +49,46 @@ __global__ void kronecker_matmul_kernel(
 ) {
     int token_idx = blockIdx.x;
     if (token_idx >= batch_tokens) return;
-
-    // 为中间结果分配共享内存
-    __shared__ T smem_temp[MAX_FEATURES_PER_BLOCK];
     
-    int thread_idx = threadIdx.x;
+    int tid = threadIdx.x;
     int threads_per_block = blockDim.x;
+    
+    // 使用共享内存存储中间结果
+    extern __shared__ char smem[];
+    T* temp_matrix = (T*)smem;
     
     // 每个 block 处理一个 token
     const T* input_token = input + token_idx * M * N;
     T* output_token = output + token_idx * M * N;
     
-    // 第一步：x @ right_trans (即 input @ right_trans)
-    // 计算 [M, N] @ [N, N] = [M, N]，结果存入共享内存 smem_temp
+    // 第一步：计算 input @ right_trans，结果存储在共享内存中
+    // input[M, N] @ right_trans[N, N] = temp[M, N]
     for (int m = 0; m < M; m++) {
-        for (int n = thread_idx; n < N; n += threads_per_block) {
+        for (int n = tid; n < N; n += threads_per_block) {
             T sum = T(0);
             for (int k = 0; k < N; k++) {
                 sum += input_token[m * N + k] * right_trans[k * N + n];
             }
-            smem_temp[m * N + n] = sum;
+            temp_matrix[m * N + n] = sum;
         }
     }
     
     __syncthreads();
     
-    // 第二步：left_trans^T @ smem_temp
-    // 计算 [M, M] @ [M, N] = [M, N]，从共享内存读取，结果写入全局内存
-    for (int m = thread_idx; m < M; m += threads_per_block) {
+    // 第二步：计算 left_trans^T @ temp，写入输出
+    // left_trans^T[M, M] @ temp[M, N] = output[M, N]
+    for (int m = tid; m < M; m += threads_per_block) {
         for (int n = 0; n < N; n++) {
             T sum = T(0);
             for (int k = 0; k < M; k++) {
-                sum += left_trans[k * M + m] * smem_temp[k * N + n];
+                sum += left_trans[k * M + m] * temp_matrix[k * N + n];
             }
             output_token[m * N + n] = sum;
         }
     }
 }
 
-// 计算动态量化参数 (per-token scale)
+// 优化的动态量化参数计算 (使用warp-level primitives)
 template<typename T>
 __global__ void compute_dynamic_scale_kernel(
     const T* __restrict__ input,        // [batch_tokens, features]
@@ -99,13 +100,19 @@ __global__ void compute_dynamic_scale_kernel(
     int token_idx = blockIdx.x;
     if (token_idx >= batch_tokens) return;
     
-    extern __shared__ float sdata[];
     int tid = threadIdx.x;
+    int warp_id = tid / WARP_SIZE;
+    int lane_id = tid % WARP_SIZE;
     int threads_per_block = blockDim.x;
+    int warps_per_block = (threads_per_block + WARP_SIZE - 1) / WARP_SIZE;
+    
+    extern __shared__ float sdata[];
+    float* s_max = sdata;
+    float* s_min = sdata + warps_per_block;
     
     const T* input_token = input + token_idx * features;
     
-    // 第一步：计算每个 token 的最大最小值
+    // 第一步：每个线程计算局部最大最小值
     float local_max = -FLT_MAX;
     float local_min = FLT_MAX;
     
@@ -115,35 +122,42 @@ __global__ void compute_dynamic_scale_kernel(
         local_min = fminf(local_min, val);
     }
     
-    // 使用 shared memory 进行 reduction
-    sdata[tid] = local_max;
-    sdata[tid + threads_per_block] = local_min;
-    __syncthreads();
-    
-    // Reduction for max
-    for (int s = threads_per_block / 2; s > 0; s >>= 1) {
-        if (tid < s) {
-            sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]);
-            sdata[tid + threads_per_block] = fminf(sdata[tid + threads_per_block], 
-                                                   sdata[tid + threads_per_block + s]);
-        }
-        __syncthreads();
+    // Warp-level reduction
+    for (int offset = WARP_SIZE / 2; offset > 0; offset /= 2) {
+        local_max = fmaxf(local_max, __shfl_down_sync(0xffffffff, local_max, offset));
+        local_min = fminf(local_min, __shfl_down_sync(0xffffffff, local_min, offset));
     }
     
-    if (tid == 0) {
-        float xmax_val = sdata[0];
-        float xmin_val = sdata[threads_per_block];
+    // 每个warp的第一个线程写入shared memory
+    if (lane_id == 0) {
+        s_max[warp_id] = local_max;
+        s_min[warp_id] = local_min;
+    }
+    
+    __syncthreads();
+    
+    // 第一个warp对shared memory进行最终reduction
+    if (warp_id == 0) {
+        local_max = (lane_id < warps_per_block) ? s_max[lane_id] : -FLT_MAX;
+        local_min = (lane_id < warps_per_block) ? s_min[lane_id] : FLT_MAX;
         
-        // 应用 clip_ratio, 逻辑与 PyTorch 保持一致
-        xmax_val = xmax_val * clip_ratio;
-        xmin_val = xmin_val * clip_ratio;
+        for (int offset = WARP_SIZE / 2; offset > 0; offset /= 2) {
+            local_max = fmaxf(local_max, __shfl_down_sync(0xffffffff, local_max, offset));
+            local_min = fminf(local_min, __shfl_down_sync(0xffffffff, local_min, offset));
+        }
         
-        // 对称量化：使用绝对值最大值
-        float abs_max = fmaxf(fabsf(xmin_val), xmax_val);
-        float scale = abs_max / 7.0f;  // int4 对称量化范围 [-8, 7]
-        scale = fmaxf(scale, 1e-8f);   // 避免除零
-        
-        scales[token_idx] = scale;
+        if (lane_id == 0) {
+            // 应用 clip_ratio, 逻辑与 PyTorch 保持一致
+            float xmax_val = local_max * clip_ratio;
+            float xmin_val = local_min * clip_ratio;
+            
+            // 对称量化：使用绝对值最大值
+            float abs_max = fmaxf(fabsf(xmin_val), xmax_val);
+            float scale = abs_max / 7.0f;  // int4 对称量化范围 [-8, 7]
+            scale = fmaxf(scale, 1e-8f);   // 避免除零
+            
+            scales[token_idx] = scale;
+        }
     }
 }
 
@@ -236,17 +250,22 @@ std::tuple<torch::Tensor, torch::Tensor> cuda_kronecker_quant_int8(
     auto transformed = torch::zeros_like(input_reshaped);
     auto scales = torch::zeros({batch_tokens}, torch::TensorOptions().dtype(torch::kFloat32).device(input.device()));
     
-    // 设置 CUDA grid 和 block 维度
+    // 优化的 CUDA grid 和 block 维度配置
+    // Kronecker 矩阵乘法：使用适中的线程数和共享内存
     dim3 grid_kron(batch_tokens);
-    dim3 block_kron((features < 256) ? features : 256);
+    dim3 block_kron(std::min(256, std::max(32, (int)N)));  // 1D block配置，至少32个线程
+    size_t kron_shared_mem = M * N * sizeof(float);  // 为中间结果分配共享内存
     
+    // 动态量化参数计算：优化线程数量，更好利用warp
     dim3 grid_scale(batch_tokens);
-    dim3 block_scale((features < 512) ? features : 512);
-    int shared_mem_size = 2 * block_scale.x * sizeof(float);
+    int scale_threads = std::min(512, (int)(((features + 31) / 32) * 32));  // 对齐到warp边界
+    dim3 block_scale(scale_threads);
+    int warps_per_block = (scale_threads + 31) / 32;
+    size_t scale_shared_mem = 2 * warps_per_block * sizeof(float);
     
     // 执行 Kronecker 矩阵乘法
     AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, input.scalar_type(), "kronecker_matmul", ([&] {
-        kronecker_matmul_kernel<scalar_t><<<grid_kron, block_kron>>>(
+        kronecker_matmul_kernel<scalar_t><<<grid_kron, block_kron, kron_shared_mem>>>(
             input_reshaped.data_ptr<scalar_t>(),
             left_trans.data_ptr<scalar_t>(),
             right_trans.data_ptr<scalar_t>(),
@@ -258,7 +277,7 @@ std::tuple<torch::Tensor, torch::Tensor> cuda_kronecker_quant_int8(
     // 计算动态量化参数
     auto transformed_flat = transformed.view({batch_tokens, features});
     AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, input.scalar_type(), "compute_dynamic_scale", ([&] {
-        compute_dynamic_scale_kernel<scalar_t><<<grid_scale, block_scale, shared_mem_size>>>(
+        compute_dynamic_scale_kernel<scalar_t><<<grid_scale, block_scale, scale_shared_mem>>>(
             transformed_flat.data_ptr<scalar_t>(),
             scales.data_ptr<float>(),
             clip_ratio,
