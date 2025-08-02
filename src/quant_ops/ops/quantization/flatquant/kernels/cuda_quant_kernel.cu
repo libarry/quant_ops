@@ -166,7 +166,7 @@ __global__ void quantize_to_int4_kernel(
     
     // 量化：q = round(x / scale)，范围 [-8, 7]
     int quantized = __float2int_rn(val / scale);
-    quantized = max(-8, min(7, quantized));
+    quantized = (quantized < -8) ? -8 : ((quantized > 7) ? 7 : quantized);
     
     output[token_idx * features + feature_idx] = (int8_t)quantized;
 }
@@ -197,7 +197,7 @@ __global__ void quantize_and_pack_to_int32_kernel(
             
             // 量化：q = round(x / scale)，范围 [-8, 7]
             int quantized = __float2int_rn(val / scale);
-            quantized = max(-8, min(7, quantized));
+            quantized = (quantized < -8) ? -8 : ((quantized > 7) ? 7 : quantized);
             
             // 转换为 uint4 [0, 15] 用于打包
             uint32_t uint4_val = (uint32_t)(quantized + 8);
@@ -238,10 +238,10 @@ std::tuple<torch::Tensor, torch::Tensor> cuda_kronecker_quant_int8(
     
     // 设置 CUDA grid 和 block 维度
     dim3 grid_kron(batch_tokens);
-    dim3 block_kron(min(256, (int)features));
+    dim3 block_kron((features < 256) ? features : 256);
     
     dim3 grid_scale(batch_tokens);
-    dim3 block_scale(min(512, (int)features));
+    dim3 block_scale((features < 512) ? features : 512);
     int shared_mem_size = 2 * block_scale.x * sizeof(float);
     
     // 执行 Kronecker 矩阵乘法
@@ -275,7 +275,7 @@ std::tuple<torch::Tensor, torch::Tensor> cuda_kronecker_quant_int8(
                                       torch::TensorOptions().dtype(torch::kInt32).device(input.device()));
         
         dim3 grid_quant(batch_tokens, (features_packed + 255) / 256);
-        dim3 block_quant(min(256, features_packed));
+        dim3 block_quant((features_packed < 256) ? features_packed : 256);
         
         AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, input.scalar_type(), "quantize_and_pack_to_int32", ([&] {
             quantize_and_pack_to_int32_kernel<scalar_t><<<grid_quant, block_quant>>>(
@@ -291,7 +291,7 @@ std::tuple<torch::Tensor, torch::Tensor> cuda_kronecker_quant_int8(
                                       torch::TensorOptions().dtype(torch::kInt8).device(input.device()));
         
         dim3 grid_quant(batch_tokens, (features + 255) / 256);
-        dim3 block_quant(min(256, features));
+        dim3 block_quant((features < 256) ? features : 256);
         
         AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, input.scalar_type(), "quantize_to_int4", ([&] {
             quantize_to_int4_kernel<scalar_t><<<grid_quant, block_quant>>>(
