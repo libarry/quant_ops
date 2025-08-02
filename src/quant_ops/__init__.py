@@ -11,6 +11,7 @@ from .ops.quantization.flatquant import (
     flatquant_dynamic_quantize,
     dequantize_int4,
 )
+from .utils.decompose import get_decompose_dim
 
 # 检查CUDA算子可用性
 try:
@@ -25,4 +26,5 @@ __all__ = [
     "flatquant_dynamic_quantize",
     "dequantize_int4",
     "CUDA_AVAILABLE",
+    "get_decompose_dim",
 ] 

@@ -33,9 +33,9 @@ def main():
     
     # 创建测试数据
     torch.manual_seed(42)
-    input_tensor = torch.randn(batch_tokens, features, dtype=torch.float16, device='cuda')
-    left_trans = torch.randn(M, M, dtype=torch.float16, device='cuda')
-    right_trans = torch.randn(N, N, dtype=torch.float16, device='cuda')
+    input_tensor = torch.randn(batch_tokens, features, dtype=torch.float16, device='cuda') 
+    left_trans = torch.randn(M, M, dtype=torch.float16, device='cuda') / M
+    right_trans = torch.randn(N, N, dtype=torch.float16, device='cuda') / N
     
     # 预热 PyTorch 实现
     print("预热 PyTorch 实现...")
@@ -76,11 +76,11 @@ def main():
             cuda_quantized, cuda_scales = flatquant_cuda(input_tensor, left_trans, right_trans)
         torch.cuda.synchronize()
         cuda_time = (time.time() - start) / n_runs
-        
+        breakpoint()
         print(f"CUDA 实现:")
         print(f"  时间: {cuda_time*1000:.2f}ms")
         print(f"  加速比: {pytorch_time/cuda_time:.1f}x")
-        breakpoint()
+
         # 精度对比
         max_diff_quantized = (cuda_quantized.float() - pytorch_quantized.float()).abs().max().item()
         max_diff_scales = (cuda_scales - pytorch_scales).abs().max().item()

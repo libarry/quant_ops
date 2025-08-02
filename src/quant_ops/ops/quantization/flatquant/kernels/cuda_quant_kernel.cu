@@ -7,7 +7,7 @@
 
 // 每个 block 处理的最大 token 数
 #define MAX_TOKENS_PER_BLOCK 256
-#define MAX_FEATURES_PER_BLOCK 1024
+#define MAX_FEATURES_PER_BLOCK 4096
 #define WARP_SIZE 32
 
 // 移除类型转换函数，直接使用原始数据类型进行计算
@@ -49,6 +49,9 @@ __global__ void kronecker_matmul_kernel(
 ) {
     int token_idx = blockIdx.x;
     if (token_idx >= batch_tokens) return;
+
+    // 为中间结果分配共享内存
+    __shared__ T smem_temp[MAX_FEATURES_PER_BLOCK];
     
     int thread_idx = threadIdx.x;
     int threads_per_block = blockDim.x;
@@ -57,27 +60,27 @@ __global__ void kronecker_matmul_kernel(
     const T* input_token = input + token_idx * M * N;
     T* output_token = output + token_idx * M * N;
     
-    // 第一步：x @ right_trans^T (即 input @ right_trans，因为我们要 right_trans^T)
-    // 计算 [M, N] @ [N, N] = [M, N]
+    // 第一步：x @ right_trans (即 input @ right_trans)
+    // 计算 [M, N] @ [N, N] = [M, N]，结果存入共享内存 smem_temp
     for (int m = 0; m < M; m++) {
         for (int n = thread_idx; n < N; n += threads_per_block) {
             T sum = T(0);
             for (int k = 0; k < N; k++) {
                 sum += input_token[m * N + k] * right_trans[k * N + n];
             }
-            output_token[m * N + n] = sum;
+            smem_temp[m * N + n] = sum;
         }
     }
     
     __syncthreads();
     
-    // 第二步：left_trans^T @ temp
-    // 计算 [M, M] @ [M, N] = [M, N]
+    // 第二步：left_trans^T @ smem_temp
+    // 计算 [M, M] @ [M, N] = [M, N]，从共享内存读取，结果写入全局内存
     for (int m = thread_idx; m < M; m += threads_per_block) {
         for (int n = 0; n < N; n++) {
             T sum = T(0);
             for (int k = 0; k < M; k++) {
-                sum += left_trans[k * M + m] * output_token[k * N + n];
+                sum += left_trans[k * M + m] * smem_temp[k * N + n];
             }
             output_token[m * N + n] = sum;
         }
@@ -128,15 +131,15 @@ __global__ void compute_dynamic_scale_kernel(
     }
     
     if (tid == 0) {
-        float xmax = fmaxf(sdata[0], 0.0f);
-        float xmin = fminf(sdata[threads_per_block], 0.0f);
+        float xmax_val = sdata[0];
+        float xmin_val = sdata[threads_per_block];
         
-        // 应用 clip_ratio
-        xmax = xmax * clip_ratio;
-        xmin = xmin * clip_ratio;
+        // 应用 clip_ratio, 逻辑与 PyTorch 保持一致
+        xmax_val = xmax_val * clip_ratio;
+        xmin_val = xmin_val * clip_ratio;
         
         // 对称量化：使用绝对值最大值
-        float abs_max = fmaxf(fabsf(xmin), xmax);
+        float abs_max = fmaxf(fabsf(xmin_val), xmax_val);
         float scale = abs_max / 7.0f;  // int4 对称量化范围 [-8, 7]
         scale = fmaxf(scale, 1e-8f);   // 避免除零
         
