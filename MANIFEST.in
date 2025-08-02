@@ -1,0 +1,26 @@
+# 包含源代码文件
+recursive-include src *.py
+recursive-include src *.cu
+recursive-include src *.cuh
+recursive-include src *.h
+recursive-include src *.hpp
+
+# 包含文档
+include README.md
+include LICENSE
+include pyproject.toml
+
+# 包含脚本
+recursive-include scripts *.sh
+
+# 包含测试文件
+recursive-include tests *.py
+
+# 排除不必要的文件
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.so
+global-exclude __pycache__
+global-exclude .git*
+global-exclude build/*
+global-exclude dist/* 

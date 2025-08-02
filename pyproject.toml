@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "torch", "pybind11"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-ops"
+version = "0.1.0"
+description = "高性能量化算子库"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Quant Ops Team"},
+]
+maintainers = [
+    {name = "Quant Ops Team"},
+]
+keywords = [
+    "quantization",
+    "cuda", 
+    "pytorch",
+    "deep-learning",
+    "machine-learning",
+    "flatquant",
+    "int4",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers", 
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8", 
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.7"
+dependencies = [
+    "torch>=1.12.0",
+    "pybind11>=2.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "black",
+    "isort", 
+    "flake8",
+    "mypy",
+]
+test = [
+    "pytest>=6.0",
+    "pytest-cov",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/quant-ops"
+Repository = "https://github.com/your-org/quant-ops.git"
+Issues = "https://github.com/your-org/quant-ops/issues"
+Documentation = "https://quant-ops.readthedocs.io/"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py37', 'py38', 'py39', 'py310', 'py311']
+
+[tool.isort]
+profile = "black" 
+line_length = 100
+
+[tool.mypy]
+python_version = "3.7"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short" 
