@@ -25,8 +25,8 @@ from .utils.decompose import get_decompose_dim
 
 # 检查CUDA算子可用性
 try:
-    from .ops.quantization.flatquant.kernels import cuda_quant_ops
-    CUDA_AVAILABLE = True
+    from .ops.quantization.flatquant.kernels import CUDA_KERNELS_AVAILABLE, cuda_quant_ops
+    CUDA_AVAILABLE = CUDA_KERNELS_AVAILABLE and cuda_quant_ops is not None
 except ImportError:
     CUDA_AVAILABLE = False
 

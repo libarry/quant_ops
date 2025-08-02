@@ -109,7 +109,7 @@ def flatquant_dynamic_quantize(
     if pack_int32:
         assert features % 8 == 0, f"pack_int32=True 时特征维度必须是8的倍数，当前为 {features}"
     
-    if CUDA_KERNELS_AVAILABLE and use_cuda:
+    if CUDA_KERNELS_AVAILABLE and use_cuda and cuda_quant_ops is not None:
         # 使用 CUDA 加速版本
         try:
             quantized, scales = cuda_quant_ops.cuda_kronecker_quant_int8(
