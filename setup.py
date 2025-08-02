@@ -3,42 +3,47 @@ from torch.utils import cpp_extension
 import torch
 import os
 
-# 检查 CUDA 是否可用
-if not torch.cuda.is_available():
-    raise RuntimeError("CUDA is not available. This extension requires CUDA support.")
+# 检查 CUDA 是否可用并配置扩展
+ext_modules = []
+cuda_available = torch.cuda.is_available()
 
-# CUDA 编译选项
-cuda_flags = [
-    "-O3", 
-    "-std=c++17",
-    "--extended-lambda",
-    "--expt-relaxed-constexpr",
-    "-use_fast_math",
-    "--ptxas-options=-v"
-]
+if cuda_available:
+    print("CUDA detected, building with CUDA support...")
+    
+    # CUDA 编译选项
+    cuda_flags = [
+        "-O3", 
+        "-std=c++17",
+        "--extended-lambda",
+        "--expt-relaxed-constexpr",
+        "-use_fast_math",
+        "--ptxas-options=-v"
+    ]
 
-# C++ 编译选项  
-cxx_flags = [
-    "-O3", 
-    "-std=c++17"
-]
+    # C++ 编译选项  
+    cxx_flags = [
+        "-O3", 
+        "-std=c++17"
+    ]
 
-# CUDA 内核文件路径
-cuda_kernel_path = "src/quant_ops/ops/quantization/flatquant/kernels/cuda_quant_kernel.cu"
+    # CUDA 内核文件路径
+    cuda_kernel_path = "src/quant_ops/ops/quantization/flatquant/kernels/cuda_quant_kernel.cu"
 
-# 定义扩展模块
-ext_modules = [
-    cpp_extension.CUDAExtension(
-        name="cuda_quant_ops",
-        sources=[cuda_kernel_path],
-        extra_compile_args={
-            "cxx": cxx_flags,
-            "nvcc": cuda_flags
-        },
-        include_dirs=cpp_extension.include_paths(),
-        libraries=['cublas', 'curand'],
-    )
-]
+    # 定义扩展模块
+    ext_modules = [
+        cpp_extension.CUDAExtension(
+            name="quant_ops.ops.quantization.flatquant.kernels.cuda_quant_ops",
+            sources=[cuda_kernel_path],
+            extra_compile_args={
+                "cxx": cxx_flags,
+                "nvcc": cuda_flags
+            },
+            include_dirs=cpp_extension.include_paths(),
+            libraries=['cublas', 'curand'],
+        )
+    ]
+else:
+    print("CUDA not detected, installing without CUDA support...")
 
 # 读取README作为长描述
 def read_readme():

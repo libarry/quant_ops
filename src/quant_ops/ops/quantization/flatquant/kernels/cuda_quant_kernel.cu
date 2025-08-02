@@ -11,9 +11,12 @@
 #define WARP_SIZE 32
 
 // 辅助函数：将不同精度转换为 float
-__device__ inline float to_float(float x) { return x; }
-__device__ inline float to_float(half x) { return __half2float(x); }
-__device__ inline float to_float(__nv_bfloat16 x) { return __bfloat162float(x); }
+__device__ __forceinline__ float to_float_val(float x) { return x; }
+__device__ __forceinline__ float to_float_val(half x) { return __half2float(x); }
+__device__ __forceinline__ float to_float_val(__nv_bfloat16 x) { return __bfloat162float(x); }
+
+// 使用宏来避免重载冲突
+#define to_float(x) to_float_val(x)
 
 // 原子操作：安全的 float atomicMax
 __device__ inline float atomicMax_float(float* address, float val) {

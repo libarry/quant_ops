@@ -18,24 +18,37 @@
 - Python 3.7+
 - NVIDIA GPU (计算能力 6.0+)
 
-## 编译安装
+## 安装
 
-### 方法 1: 使用构建脚本 (推荐)
+### 方法 1: 使用 pip 安装（推荐）
 
 ```bash
-chmod +x scripts/build.sh
-./scripts/build.sh
+# 在项目根目录执行
+pip install .
+
+# 开发模式安装（推荐开发者使用）
+pip install -e .
 ```
 
-### 方法 2: 手动编译
+### 方法 2: 从源码编译
 
 ```bash
-# 设置环境变量
-export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0"
-export CUDA_HOME=/usr/local/cuda
+# 使用构建脚本
+chmod +x scripts/build.sh
+./scripts/build.sh
 
-# 编译扩展
+# 或手动编译
 python setup.py build_ext --inplace
+```
+
+### 安装验证
+
+```bash
+# 验证安装
+python -m quant_ops
+
+# 运行完整测试
+python -m quant_ops --test
 ```
 
 ## 使用方法
@@ -44,21 +57,19 @@ python setup.py build_ext --inplace
 
 ```python
 import torch
-import sys
-sys.path.insert(0, 'src')  # 如果从源码运行
-from quant_ops import flatquant_dynamic_quantize, dequantize_int4, get_decompose_dim
+import quant_ops  # 直接导入安装后的包
 
 # 创建测试数据
 batch_tokens = 128
 features = 4096
-M, N = get_decompose_dim(features)
+M, N = quant_ops.get_decompose_dim(features)
 
 input_tensor = torch.randn(batch_tokens, features, dtype=torch.float16, device='cuda')
 left_trans = torch.randn(M, M, dtype=torch.float16, device='cuda')
 right_trans = torch.randn(N, N, dtype=torch.float16, device='cuda')
 
 # 执行量化
-quantized, scales = flatquant_dynamic_quantize(
+quantized, scales = quant_ops.flatquant_dynamic_quantize(
     input_tensor, 
     left_trans, 
     right_trans, 
@@ -68,19 +79,20 @@ quantized, scales = flatquant_dynamic_quantize(
 )
 
 # 反量化
-dequantized = dequantize_int4(quantized, scales, packed_int32=False)
+dequantized = quant_ops.dequantize_int4(quantized, scales, packed_int32=False)
 
 print(f"输入形状: {input_tensor.shape}")
 print(f"量化结果形状: {quantized.shape}")
 print(f"量化数据类型: {quantized.dtype}")
 print(f"Scale 形状: {scales.shape}")
+print(f"量化误差: {(input_tensor.float() - dequantized).abs().mean():.6f}")
 ```
 
 ### 使用 int32 打包
 
 ```python
 # 注意：features 必须是 8 的倍数
-quantized_packed, scales = flatquant_dynamic_quantize(
+quantized_packed, scales = quant_ops.flatquant_dynamic_quantize(
     input_tensor,
     left_trans,
     right_trans,
@@ -90,10 +102,16 @@ quantized_packed, scales = flatquant_dynamic_quantize(
 )
 
 # 反量化打包的数据
-dequantized_packed = dequantize_int4(quantized_packed, scales, packed_int32=True)
+dequantized_packed = quant_ops.dequantize_int4(quantized_packed, scales, packed_int32=True)
 
 print(f"打包量化结果形状: {quantized_packed.shape}")  # [batch_tokens, features//8]
 print(f"打包数据类型: {quantized_packed.dtype}")     # torch.int32
+
+# 验证存储效率
+memory_int8 = batch_tokens * features * 1  # int8 存储
+memory_int32 = quantized_packed.numel() * 4  # int32 存储
+compression_ratio = memory_int8 / memory_int32
+print(f"存储压缩比: {compression_ratio:.2f}x")
 ```
 
 ## 性能测试
@@ -136,7 +154,7 @@ python tests/test_performance.py --detailed
 
 ## API 参考
 
-### `flatquant_dynamic_quantize`
+### `quant_ops.flatquant_dynamic_quantize`
 
 执行 FlatQuant 动态量化到 int4。
 
@@ -151,7 +169,7 @@ python tests/test_performance.py --detailed
 **返回:**
 - `Tuple[torch.Tensor, torch.Tensor]`: (量化结果, scale值)
 
-### `dequantize_int4`
+### `quant_ops.dequantize_int4`
 
 反量化 int4 数据回浮点数。
 
@@ -163,7 +181,7 @@ python tests/test_performance.py --detailed
 **返回:**
 - `torch.Tensor`: 反量化后的浮点张量
 
-### `get_decompose_dim`
+### `quant_ops.get_decompose_dim`
 
 计算 FlatQuant 变换矩阵的分解维度。
 
@@ -172,6 +190,10 @@ python tests/test_performance.py --detailed
 
 **返回:**
 - `Tuple[int, int]`: (M, N) 使得 M*N = n
+
+### `quant_ops.CUDA_AVAILABLE`
+
+布尔值，指示CUDA算子是否可用。如果为 `False`，算子将自动使用PyTorch后备实现。
 
 ## 算法原理
 

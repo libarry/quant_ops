@@ -5,11 +5,21 @@ FlatQuant CUDA内核模块
 """
 
 # 尝试导入编译的CUDA扩展
+cuda_quant_ops = None
+CUDA_KERNELS_AVAILABLE = False
+
 try:
-    import cuda_quant_ops
+    # 首先尝试导入安装后的扩展
+    from . import cuda_quant_ops
     CUDA_KERNELS_AVAILABLE = True
-except ImportError as e:
-    cuda_quant_ops = None
-    CUDA_KERNELS_AVAILABLE = False
+except ImportError:
+    try:
+        # 回退到直接导入（开发时）
+        import cuda_quant_ops
+        CUDA_KERNELS_AVAILABLE = True
+    except ImportError as e:
+        # 都失败了，设置为None
+        cuda_quant_ops = None
+        CUDA_KERNELS_AVAILABLE = False
 
 __all__ = ["cuda_quant_ops", "CUDA_KERNELS_AVAILABLE"] 
