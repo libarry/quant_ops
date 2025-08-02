@@ -10,13 +10,7 @@
 #define MAX_FEATURES_PER_BLOCK 1024
 #define WARP_SIZE 32
 
-// 辅助函数：将不同精度转换为 float
-__device__ __forceinline__ float to_float_val(float x) { return x; }
-__device__ __forceinline__ float to_float_val(half x) { return __half2float(x); }
-__device__ __forceinline__ float to_float_val(__nv_bfloat16 x) { return __bfloat162float(x); }
-
-// 使用宏来避免重载冲突
-#define to_float(x) to_float_val(x)
+// 移除类型转换函数，直接使用原始数据类型进行计算
 
 // 原子操作：安全的 float atomicMax
 __device__ inline float atomicMax_float(float* address, float val) {
@@ -67,11 +61,11 @@ __global__ void kronecker_matmul_kernel(
     // 计算 [M, N] @ [N, N] = [M, N]
     for (int m = 0; m < M; m++) {
         for (int n = thread_idx; n < N; n += threads_per_block) {
-            float sum = 0.0f;
+            T sum = T(0);
             for (int k = 0; k < N; k++) {
-                sum += to_float(input_token[m * N + k]) * to_float(right_trans[k * N + n]);
+                sum += input_token[m * N + k] * right_trans[k * N + n];
             }
-            output_token[m * N + n] = (T)sum;
+            output_token[m * N + n] = sum;
         }
     }
     
@@ -81,11 +75,11 @@ __global__ void kronecker_matmul_kernel(
     // 计算 [M, M] @ [M, N] = [M, N]
     for (int m = thread_idx; m < M; m += threads_per_block) {
         for (int n = 0; n < N; n++) {
-            float sum = 0.0f;
+            T sum = T(0);
             for (int k = 0; k < M; k++) {
-                sum += to_float(left_trans[k * M + m]) * to_float(output_token[k * N + n]);
+                sum += left_trans[k * M + m] * output_token[k * N + n];
             }
-            output_token[m * N + n] = (T)sum;
+            output_token[m * N + n] = sum;
         }
     }
 }
@@ -113,7 +107,7 @@ __global__ void compute_dynamic_scale_kernel(
     float local_min = FLT_MAX;
     
     for (int i = tid; i < features; i += threads_per_block) {
-        float val = to_float(input_token[i]);
+        float val = static_cast<float>(input_token[i]);
         local_max = fmaxf(local_max, val);
         local_min = fminf(local_min, val);
     }
@@ -165,7 +159,7 @@ __global__ void quantize_to_int4_kernel(
     if (token_idx >= batch_tokens || feature_idx >= features) return;
     
     float scale = scales[token_idx];
-    float val = to_float(input[token_idx * features + feature_idx]);
+    float val = static_cast<float>(input[token_idx * features + feature_idx]);
     
     // 量化：q = round(x / scale)，范围 [-8, 7]
     int quantized = __float2int_rn(val / scale);
@@ -196,7 +190,7 @@ __global__ void quantize_and_pack_to_int32_kernel(
     for (int i = 0; i < 8; i++) {
         int feature_idx = pack_idx * 8 + i;
         if (feature_idx < features) {
-            float val = to_float(input[token_idx * features + feature_idx]);
+            float val = static_cast<float>(input[token_idx * features + feature_idx]);
             
             // 量化：q = round(x / scale)，范围 [-8, 7]
             int quantized = __float2int_rn(val / scale);
