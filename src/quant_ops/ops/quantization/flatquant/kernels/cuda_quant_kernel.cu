@@ -4,6 +4,7 @@
 #include <cuda_bf16.h>
 #include <cublas_v2.h>
 #include <cub/cub.cuh>
+#include <ATen/cuda/CUDAContext.h>
 
 // 每个 block 处理的最大 token 数
 #define MAX_TOKENS_PER_BLOCK 256
@@ -375,8 +376,15 @@ std::tuple<torch::Tensor, torch::Tensor> cuda_kronecker_quant_int8(
         }
     }));
 
-    cudaDeviceSynchronize();
-    TORCH_CHECK(cudaGetLastError() == cudaSuccess, "CUDA kernel execution failed");
+    // 条件同步：图捕获时保持异步，捕获外保证写后读一致性
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    cudaStreamCaptureStatus cap_status;
+    cudaStreamIsCapturing(stream, &cap_status);
+    if (cap_status == cudaStreamCaptureStatusNone) {
+        cudaStreamSynchronize(stream);
+    }
+    auto _err = cudaGetLastError();
+    TORCH_CHECK(_err == cudaSuccess, "CUDA kernel launch failed: %s", cudaGetErrorString(_err));
 
     return std::make_tuple(quantized_output, scales);
 }

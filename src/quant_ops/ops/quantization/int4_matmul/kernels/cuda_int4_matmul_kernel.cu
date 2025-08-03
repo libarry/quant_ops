@@ -2,6 +2,7 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <sm_61_intrinsics.h>  // __dp4a
+#include <ATen/cuda/CUDAContext.h>
 #ifdef __CUDACC_VER_MAJOR__
 #if __CUDACC_VER_MAJOR__ >= 11
 #include <mma.h>               // 准备后续 Tensor Core 优化
@@ -174,8 +175,15 @@ torch::Tensor cuda_int4_matmul(
             M, K, N);
     }));
 
-    cudaDeviceSynchronize();
-    TORCH_CHECK(cudaGetLastError() == cudaSuccess, "CUDA kernel execution failed");
+    // 条件同步：仅在未捕获时同步，防止跨-stream 数据竞争
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    cudaStreamCaptureStatus cap_status;
+    cudaStreamIsCapturing(stream, &cap_status);
+    if (cap_status == cudaStreamCaptureStatusNone) {
+        cudaStreamSynchronize(stream);
+    }
+    auto _err = cudaGetLastError();
+    TORCH_CHECK(_err == cudaSuccess, "CUDA kernel launch failed: %s", cudaGetErrorString(_err));
 
     return output;
 }

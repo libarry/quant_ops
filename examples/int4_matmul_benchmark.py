@@ -41,10 +41,10 @@ def benchmark_pytorch_baseline(a_original, b_original, scale_a, scale_b, n_runs=
     start_time = time.time()
     for _ in range(n_runs):
         result = torch.matmul(a_fp16, b_fp16)
-        result = result * scale_a_expanded * scale_b_expanded
     torch.cuda.synchronize()
     
     elapsed_time = time.time() - start_time
+    result = result * scale_a_expanded * scale_b_expanded
     return elapsed_time / n_runs, result
 
 def main():

@@ -33,9 +33,9 @@ def main():
     
     # 创建测试数据
     torch.manual_seed(42)
-    input_tensor = torch.randn(batch_tokens, features, dtype=torch.float16, device='cuda') 
-    left_trans = torch.randn(M, M, dtype=torch.float16, device='cuda') / M
-    right_trans = torch.randn(N, N, dtype=torch.float16, device='cuda') / N
+    input_tensor = torch.randn(batch_tokens, features, dtype=torch.bfloat16, device='cuda') 
+    left_trans = torch.randn(M, M, dtype=torch.bfloat16, device='cuda') / M
+    right_trans = torch.randn(N, N, dtype=torch.bfloat16, device='cuda') / N
     
     # 预热 PyTorch 实现
     print("预热 PyTorch 实现...")
@@ -57,7 +57,7 @@ def main():
     torch.cuda.synchronize()
     start = time.time()
     for _ in range(n_runs):
-        pytorch_quantized, pytorch_scales = flatquant_pytorch(input_tensor, left_trans, right_trans)
+        pytorch_quantized, pytorch_scales = flatquant_pytorch(input_tensor, left_trans, right_trans, 0.6)
     torch.cuda.synchronize()
     pytorch_time = (time.time() - start) / n_runs
     
@@ -73,7 +73,7 @@ def main():
         torch.cuda.synchronize()
         start = time.time()
         for _ in range(n_runs):
-            cuda_quantized, cuda_scales = flatquant_cuda(input_tensor, left_trans, right_trans)
+            cuda_quantized, cuda_scales = flatquant_cuda(input_tensor, left_trans, right_trans, 0.6)
         torch.cuda.synchronize()
         cuda_time = (time.time() - start) / n_runs
 
