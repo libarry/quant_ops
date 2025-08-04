@@ -8,6 +8,19 @@ from torch.autograd import Function
 
 from .kernels import cuda_quant_ops, CUDA_KERNELS_AVAILABLE
 
+# 让 torch.compile / torch._dynamo 允许在图中调用 C++ PyCapsule 函数
+try:
+    import torch
+    if hasattr(torch, 'compiler') and hasattr(torch.compiler, 'allow_in_graph'):
+        torch.compiler.allow_in_graph(cuda_quant_ops.cuda_kronecker_quant_int8)
+    else:
+        # 兼容旧版本 torch 2.1/2.2: _dynamo.allow_in_graph
+        from torch._dynamo import allow_in_graph  # type: ignore
+        allow_in_graph(cuda_quant_ops.cuda_kronecker_quant_int8)
+except Exception:
+    # 环境不支持时静默忽略，运行时仍会走 dispatcher 路径
+    pass
+
 
 class _FlatQuantCUDA(Function):
     """
@@ -16,14 +29,26 @@ class _FlatQuantCUDA(Function):
     @staticmethod
     def forward(ctx, input_tensor, left_trans, right_trans, clip_ratio, pack_int32):
         # 无需保存 ctx，因为 backward 不会被实现
-        return cuda_quant_ops.cuda_kronecker_quant_int8(
-            input_tensor, left_trans, right_trans, clip_ratio, pack_int32
+        # 通过 Dispatcher 调用，自带 meta kernel，便于 torch.compile 处理
+        return torch.ops.quant_ops.flatquant_dynamic_quantize(
+            input_tensor, left_trans, right_trans,
+            float(clip_ratio), bool(pack_int32)
         )
 
     @staticmethod
     def backward(ctx, grad_output, grad_scales):
         # 推理场景下，量化操作无需梯度
         return None, None, None, None, None
+
+# 将 Autograd Function 标记为允许进入 graph（TorchDynamo）
+try:
+    if hasattr(torch, 'compiler') and hasattr(torch.compiler, 'allow_in_graph'):
+        torch.compiler.allow_in_graph(_FlatQuantCUDA.apply)  # type: ignore
+    else:
+        from torch._dynamo import allow_in_graph  # type: ignore
+        allow_in_graph(_FlatQuantCUDA.apply)  # type: ignore
+except Exception:
+    pass
 
 
 def flatquant_cuda(

@@ -1,4 +1,20 @@
-from torch._ops import op
+# 兼容 PyTorch >=2.3 无 torch._ops.op 的情况
+try:
+    from torch._ops import op  # PyTorch < 2.3
+except ImportError:  # PyTorch 2.3+
+    # 使用新版 torch.library.register_fake 作为 meta kernel 注册接口
+    from torch.library import register_fake
+
+    def op(name: str, kind: str = "meta"):
+        """兼容装饰器，用于在缺失 torch._ops.op 时注册 meta kernel。"""
+        assert kind == "meta", "Only meta registration is supported in this fallback"
+
+        def decorator(fn):
+            register_fake(name)(fn)
+            return fn
+
+        return decorator
+
 import torch
 
 # ---------------- Meta kernels for torch dispatcher -----------------

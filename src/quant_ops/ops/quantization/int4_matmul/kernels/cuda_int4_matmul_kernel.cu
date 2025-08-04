@@ -204,7 +204,7 @@ static torch::Tensor int4_matmul_dispatch(
 }
 
 // 定义算子 schema（只需定义一次即可；多个 TU 重复定义会自动合并）
-TORCH_LIBRARY(quant_ops, m) {
+TORCH_LIBRARY_FRAGMENT(quant_ops, m) {
     m.def("int4_matmul(Tensor a, Tensor b, Tensor scale_a, Tensor scale_b) -> Tensor");
 }
 

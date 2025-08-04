@@ -8,6 +8,17 @@ from typing import Tuple
 
 from .kernels import cuda_int4_matmul_ops, CUDA_KERNELS_AVAILABLE
 
+# 允许 torch.compile 捕获 C++ int4 matmul PyCapsule
+try:
+    import torch
+    if hasattr(torch, 'compiler') and hasattr(torch.compiler, 'allow_in_graph'):
+        torch.compiler.allow_in_graph(cuda_int4_matmul_ops.cuda_int4_matmul)
+    else:
+        from torch._dynamo import allow_in_graph  # type: ignore
+        allow_in_graph(cuda_int4_matmul_ops.cuda_int4_matmul)
+except Exception:
+    pass
+
 
 def pack_int4_to_int32(tensor: torch.Tensor) -> torch.Tensor:
     """
@@ -122,8 +133,8 @@ def int4_matmul_cuda(
     if not scale_b.is_contiguous():
         scale_b = scale_b.contiguous()
     
-    # 调用 CUDA 算子
-    return cuda_int4_matmul_ops.cuda_int4_matmul(a_packed, b_packed, scale_a, scale_b)
+    # 统一走 Dispatcher，FakeTensor 会命中 meta kernel；实张量自动落到 CUDA 实现
+    return torch.ops.quant_ops.int4_matmul(a_packed, b_packed, scale_a, scale_b)
 
 
 def int4_matmul(
