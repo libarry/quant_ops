@@ -135,8 +135,13 @@ def int4_matmul(
     """
     Int4 矩阵乘法主接口 - 自动选择最佳实现
     """
-    if CUDA_KERNELS_AVAILABLE and cuda_int4_matmul_ops is not None:
-        return int4_matmul_cuda(a_packed, b_packed, scale_a, scale_b)
-    else:
-        return int4_matmul_pytorch(a_packed, b_packed, scale_a, scale_b)
+    # 优先使用通过 C++ Dispatcher 注册的自定义算子 —— 这可以被 TorchDynamo / vLLM 捕获为原子op
+    try:
+        return torch.ops.quant_ops.int4_matmul(a_packed, b_packed, scale_a, scale_b)
+    except (RuntimeError, AttributeError):
+        # 若算子尚未成功加载，则回退到原有实现
+        if CUDA_KERNELS_AVAILABLE and cuda_int4_matmul_ops is not None:
+            return int4_matmul_cuda(a_packed, b_packed, scale_a, scale_b)
+        else:
+            return int4_matmul_pytorch(a_packed, b_packed, scale_a, scale_b)
 

@@ -389,6 +389,33 @@ std::tuple<torch::Tensor, torch::Tensor> cuda_kronecker_quant_int8(
     return std::make_tuple(quantized_output, scales);
 }
 
+// ================================ Torch Dispatcher Registration ================================
+// 新增: 将 CUDA 实现注册为 PyTorch 自定义算子 (quant_ops::flatquant_dynamic_quantize)，便于 TorchDynamo / vLLM 图模式识别
+
+static std::tuple<torch::Tensor, torch::Tensor> flatquant_dynamic_quantize_dispatch(
+    const torch::Tensor& input,
+    const torch::Tensor& left_trans,
+    const torch::Tensor& right_trans,
+    double clip_ratio,
+    bool pack_int32) {
+    if (input.is_cuda()) {
+        return cuda_kronecker_quant_int8(input, left_trans, right_trans, static_cast<float>(clip_ratio), pack_int32);
+    }
+    TORCH_CHECK(false, "quant_ops::flatquant_dynamic_quantize CPU kernel is not implemented. Use CUDA tensor or fallback Python implementation.");
+}
+
+TORCH_LIBRARY(quant_ops, m) {
+    m.def("flatquant_dynamic_quantize(Tensor input, Tensor left_trans, Tensor right_trans, float clip_ratio=1, bool pack_int32=False) -> (Tensor, Tensor)");
+}
+
+TORCH_LIBRARY_IMPL(quant_ops, CUDA, m) {
+    m.impl("flatquant_dynamic_quantize", &flatquant_dynamic_quantize_dispatch);
+}
+
+TORCH_LIBRARY_IMPL(quant_ops, CPU, m) {
+    m.impl("flatquant_dynamic_quantize", torch::CppFunction::makeFallthrough());
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("cuda_kronecker_quant_int8", &cuda_kronecker_quant_int8, "CUDA Kronecker Quantization to Int4");
 } 

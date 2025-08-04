@@ -4,8 +4,26 @@ FlatQuant 动态量化算子实现 - 精简版
 
 import torch
 from typing import Tuple
+from torch.autograd import Function
 
 from .kernels import cuda_quant_ops, CUDA_KERNELS_AVAILABLE
+
+
+class _FlatQuantCUDA(Function):
+    """
+    FlatQuant CUDA aotugrad function
+    """
+    @staticmethod
+    def forward(ctx, input_tensor, left_trans, right_trans, clip_ratio, pack_int32):
+        # 无需保存 ctx，因为 backward 不会被实现
+        return cuda_quant_ops.cuda_kronecker_quant_int8(
+            input_tensor, left_trans, right_trans, clip_ratio, pack_int32
+        )
+
+    @staticmethod
+    def backward(ctx, grad_output, grad_scales):
+        # 推理场景下，量化操作无需梯度
+        return None, None, None, None, None
 
 
 def flatquant_cuda(
@@ -26,8 +44,8 @@ def flatquant_cuda(
     left_trans = left_trans.cuda()
     right_trans = right_trans.cuda()
     
-    # 调用 CUDA 算子
-    return cuda_quant_ops.cuda_kronecker_quant_int8(
+    # 调用 autograd function
+    return _FlatQuantCUDA.apply(
         input_tensor, left_trans, right_trans, clip_ratio, pack_int32
     )
 
@@ -97,10 +115,17 @@ def flatquant_dynamic_quantize(
     """
     FlatQuant 动态量化主接口 - 默认使用 CUDA 算子
     """
-    if CUDA_KERNELS_AVAILABLE and cuda_quant_ops is not None:
-        return flatquant_cuda(input_tensor, left_trans, right_trans, clip_ratio, pack_int32)
-    else:
-        return flatquant_pytorch(input_tensor, left_trans, right_trans, clip_ratio, pack_int32)
+    # 优先调用使用 C++ Dispatcher 注册的算子，便于 graph 捕获
+    try:
+        return torch.ops.quant_ops.flatquant_dynamic_quantize(
+            input_tensor, left_trans, right_trans, float(clip_ratio), pack_int32
+        )
+    except (RuntimeError, AttributeError):
+        # Dispatcher 未加载时回退
+        if CUDA_KERNELS_AVAILABLE and cuda_quant_ops is not None:
+            return flatquant_cuda(input_tensor, left_trans, right_trans, clip_ratio, pack_int32)
+        else:
+            return flatquant_pytorch(input_tensor, left_trans, right_trans, clip_ratio, pack_int32)
 
 
 def dequantize_int4(

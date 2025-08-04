@@ -188,6 +188,36 @@ torch::Tensor cuda_int4_matmul(
     return output;
 }
 
+// ================================ Torch Dispatcher Registration ================================
+// 新增: 将 CUDA 实现注册为 PyTorch 自定义算子 (quant_ops::int4_matmul)，便于 TorchDynamo / vLLM 图模式识别
+
+static torch::Tensor int4_matmul_dispatch(
+    const torch::Tensor& a_packed,
+    const torch::Tensor& b_packed,
+    const torch::Tensor& scale_a,
+    const torch::Tensor& scale_b) {
+    // 仅实现 CUDA 路径；CPU 调用时抛错（可在 Python 层 fallback）
+    if (a_packed.is_cuda()) {
+        return cuda_int4_matmul(a_packed, b_packed, scale_a, scale_b);
+    }
+    TORCH_CHECK(false, "quant_ops::int4_matmul CPU kernel is not implemented. Use CUDA tensor or fallback Python implementation.");
+}
+
+// 定义算子 schema（只需定义一次即可；多个 TU 重复定义会自动合并）
+TORCH_LIBRARY(quant_ops, m) {
+    m.def("int4_matmul(Tensor a, Tensor b, Tensor scale_a, Tensor scale_b) -> Tensor");
+}
+
+// 注册 CUDA 实现
+TORCH_LIBRARY_IMPL(quant_ops, CUDA, m) {
+    m.impl("int4_matmul", &int4_matmul_dispatch);
+}
+
+// 对 CPU 等其他设备做显式 fallthrough，防止 Dispatcher 抛 MissingKernelError
+TORCH_LIBRARY_IMPL(quant_ops, CPU, m) {
+    m.impl("int4_matmul", torch::CppFunction::makeFallthrough());
+}
+
 // ================================ PyBind ================================
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("cuda_int4_matmul", &cuda_int4_matmul, "CUDA Int4 Matrix Multiplication (dp4a Optimised)");
