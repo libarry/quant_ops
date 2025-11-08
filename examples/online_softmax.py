@@ -17,7 +17,7 @@ def online_softmax_kernel(  input_ptr,
     row_step = tl.num_programs(0)
     m_offset = row_start * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     acc_denominator = tl.full((BLOCK_SIZE_M,), 0.0, dtype=tl.float32)
-    acc_max = tl.full((BLOCK_SIZE_M,), float("-inf"), dtype=tl.float16)
+    acc_max = tl.full((BLOCK_SIZE_M,), float("-inf"), dtype=tl.float32)
     for row_idx in tl.range(0, tl.cdiv(n, BLOCK_SIZE_N),  num_stages=num_stages):
         n_offset = row_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
         mask = m_offset[:, None] < m and n_offset[None, :] < n
