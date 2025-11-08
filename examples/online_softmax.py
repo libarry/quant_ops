@@ -44,7 +44,7 @@ def softmax(x: torch.Tensor):
     online_softmax_kernel[grid](x, 
                                 denominator, 
                                 x_max, 
-                                x.stride(0)
+                                x.stride(0),
                                 m,
                                 n, 
                                 BLOCK_SIZE_M=32, 
