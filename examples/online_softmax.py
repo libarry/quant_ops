@@ -25,7 +25,7 @@ def online_softmax_kernel(  input_ptr,
                     mask=mask, other=float("-inf"))
         tile_max = tl.max(inp_tile, axis=-1)
         tile_max = tl.maximum(acc_max, tile_max)
-        stabilized_scores = inp_tile - tile_max[..., None]
+        stabilized_scores = inp_tile - tile_max[:, None]
         exp_scores = stabilized_scores.exp()
         acc_denominator = acc_denominator * (acc_max - tile_max).exp() + exp_scores.sum(axis=-1)
         acc_max = tile_max
