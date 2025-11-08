@@ -38,13 +38,14 @@ def softmax(x: torch.Tensor):
     assert x.is_cuda
     denominator = torch.empty_like(x[:, 0])
     x_max = torch.empty_like(x[:, 0])
-    n_elements = x.shape[0]
+    m, n = x.shape
 
-    grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE_M']), )
+    grid = lambda meta: (triton.cdiv(m, meta['BLOCK_SIZE_M']), )
     online_softmax_kernel[grid](x, 
                                 denominator, 
                                 x_max, 
-                                n_elements, 
+                                m,
+                                n, 
                                 BLOCK_SIZE_M=32, 
                                 BLOCK_SIZE_N=32, 
                                 num_stages=1)
