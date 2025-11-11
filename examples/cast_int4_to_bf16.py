@@ -90,13 +90,13 @@ def weight_dequant(weight: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
 
     # Get the original dimensions of weight
     M, N = weight.shape
-    M, K = scale.shape
-    group_size = N // K
-    assert N % K == 0, f"N ({N}) is not divisible by K ({K})"
+
+
     # Compute the effective group dimensions for scale
     scale_m, scale_n = scale.shape
+    group_size = N // scale_n
+    assert N % scale_n == 0, f"N ({N}) is not divisible by K ({scale_n})"
     assert scale_m == M, f"Mismatch in scale rows ({scale_m}) and weight rows ({M})."
-    assert scale_n == (N + group_size - 1) // group_size, f"Mismatch in scale columns ({scale_n}) and weight columns grouped by {group_size}."
 
     # Convert weight to float32 for calculations
     weight = weight.to(torch.float32)
