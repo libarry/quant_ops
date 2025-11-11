@@ -71,7 +71,7 @@ def unpack_from_int32(
 
     return unpacked
 
-def weight_dequant(weight: torch.Tensor, scale: torch.Tensor, group_size: int = 128) -> torch.Tensor:
+def weight_dequant(weight: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     """
     Dequantizes the given weight tensor using the provided scale tensor for per-group quantization.
     The scale tensor is applied along the second dimension (columns) with the specified group size.
@@ -90,7 +90,9 @@ def weight_dequant(weight: torch.Tensor, scale: torch.Tensor, group_size: int = 
 
     # Get the original dimensions of weight
     M, N = weight.shape
-
+    M, K = scale.shape
+    group_size = N // K
+    assert N % K == 0, f"N ({N}) is not divisible by K ({K})"
     # Compute the effective group dimensions for scale
     scale_m, scale_n = scale.shape
     assert scale_m == M, f"Mismatch in scale rows ({scale_m}) and weight rows ({M})."
