@@ -226,8 +226,9 @@ def main(int4_path, bf16_path):
                     unpacked_weight = unpack_from_int32(weight, num_bits=4, shape=original_shape, packed_dim=1)
                     dequantized_weight = weight_dequant(unpacked_weight, scale)
                     
-                    # Move back to CPU for saving
-                    new_state_dict[weight_name] = dequantized_weight.cpu()
+                    # Move back to CPU for saving and rename to .weight
+                    new_weight_name = f"{base_name}.weight"
+                    new_state_dict[new_weight_name] = dequantized_weight.cpu()
                 except KeyError:
                     print(f"Warning: Missing scale or shape tensor for {weight_name}, skipping conversion")
                     new_state_dict[weight_name] = weight
@@ -250,10 +251,19 @@ def main(int4_path, bf16_path):
         base_name = weight_name[:-len(".weight_packed")]
         scale_name = f"{base_name}.weight_scale"
         shape_name = f"{base_name}.weight_shape"
+        new_weight_name = f"{base_name}.weight"
+        
+        # Remove scale and shape tensors from weight_map
         if scale_name in weight_map:
             weight_map.pop(scale_name)
         if shape_name in weight_map:
             weight_map.pop(shape_name)
+        
+        # Update the weight name from .weight_packed to .weight
+        if weight_name in weight_map:
+            weight_map[new_weight_name] = weight_map[weight_name]
+            weight_map.pop(weight_name)
+    
     with open(new_model_index_file, "w") as f:
         json.dump({"metadata": {}, "weight_map": weight_map}, f, indent=2)
 
