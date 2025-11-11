@@ -178,8 +178,10 @@ def main(int4_path, bf16_path):
                 continue
             elif weight_name.endswith(".weight_packed") and weight.dtype == torch.int32:
                 # INT4 weight processing
-                scale_name = f"{weight_name}.weight_scale"
-                shape_name = f"{weight_name}.weight_shape"
+                # Extract base name by removing ".weight_packed" suffix
+                base_name = weight_name[:-len(".weight_packed")]
+                scale_name = f"{base_name}.weight_scale"
+                shape_name = f"{base_name}.weight_shape"
                 try:
                     # Get scale and shape from the correct file
                     scale = get_tensor(scale_name)
@@ -206,8 +208,10 @@ def main(int4_path, bf16_path):
     # Update model index
     new_model_index_file = os.path.join(bf16_path, "model.safetensors.index.json")
     for weight_name in int4_weight_names:
-        scale_name = f"{weight_name}.weight_scale"
-        shape_name = f"{weight_name}.weight_shape"
+        # Extract base name by removing ".weight_packed" suffix
+        base_name = weight_name[:-len(".weight_packed")]
+        scale_name = f"{base_name}.weight_scale"
+        shape_name = f"{base_name}.weight_shape"
         if scale_name in weight_map:
             weight_map.pop(scale_name)
         if shape_name in weight_map:
