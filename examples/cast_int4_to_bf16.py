@@ -8,6 +8,29 @@ from typing import Union, Literal
 import torch
 from safetensors.torch import load_file, save_file
 
+npu_available = False
+try:
+    import torch_npu
+except ImportError:
+    pass
+else:
+    npu_available = True
+
+def get_device():
+    """
+    Get the best available device for tensor operations.
+    Priority: NPU > CUDA > CPU
+    
+    Returns:
+        torch.device: The selected device
+    """
+    if npu_available:
+        return torch.device("npu")
+    elif torch.cuda.is_available():
+        return torch.device("cuda")
+    else:
+        return torch.device("cpu")
+
 #from kernel import weight_dequant
 def unpack_from_int32(
     value: torch.Tensor,
@@ -138,6 +161,11 @@ def main(int4_path, bf16_path):
     """
     torch.set_default_dtype(torch.bfloat16)
     os.makedirs(bf16_path, exist_ok=True)
+    
+    # Get the best available device
+    device = get_device()
+    print(f"Using device: {device}")
+    
     model_index_file = os.path.join(int4_path, "model.safetensors.index.json")
     with open(model_index_file, "r") as f:
         model_index = json.load(f)
@@ -189,9 +217,17 @@ def main(int4_path, bf16_path):
                     scale = get_tensor(scale_name)
                     original_shape = get_tensor(shape_name)
                     int4_weight_names.append(weight_name)
+                    
+                    # Move tensors to the selected device for processing
+                    weight = weight.to(device)
+                    scale = scale.to(device)
+                    
                     # Unpack and dequantize the INT4 weight
                     unpacked_weight = unpack_from_int32(weight, num_bits=4, shape=original_shape, packed_dim=1)
-                    new_state_dict[weight_name] = weight_dequant(unpacked_weight, scale)
+                    dequantized_weight = weight_dequant(unpacked_weight, scale)
+                    
+                    # Move back to CPU for saving
+                    new_state_dict[weight_name] = dequantized_weight.cpu()
                 except KeyError:
                     print(f"Warning: Missing scale or shape tensor for {weight_name}, skipping conversion")
                     new_state_dict[weight_name] = weight
