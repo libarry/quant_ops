@@ -34,10 +34,13 @@ def fast_attention_kernel(  Q,
             mask=(k_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim), other=0.0)
         score = tl.dot(q_tile, tl.trans(k_tile)) 
         score = score / sqrt_hidden_dim
+        # 对越界的KV列进行softmax掩码：将分数置为 -inf，避免将padding列当作有效token参与max和sum
+        kv_valid = k_offset[None, :] < seq
+        masked_score = tl.where(kv_valid, score, float("-inf"))
 
-        current_max = tl.max(score, axis=-1)
+        current_max = tl.max(masked_score, axis=-1)
         new_max = tl.maximum(acc_max, current_max)
-        score = score - new_max[:, None]
+        score = masked_score - new_max[:, None]
         exp_score = tl.exp(score)
         current_denominator = acc_denominator * (acc_max - new_max).exp() + exp_score.sum(axis=-1)
         scale_factor = (acc_denominator / current_denominator)
