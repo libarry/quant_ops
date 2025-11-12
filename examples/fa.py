@@ -26,17 +26,28 @@ def fast_attention_kernel(  Q,
     output_tile = tl.full((BLOCK_SIZE_Q, BLOCK_SIZE_HIDDEN), 0.0, dtype=tl.float32)
     for row_idx in tl.range(0, tl.cdiv(seq, BLOCK_SIZE_KV), num_stages=num_stages):
         k_offset = row_idx * BLOCK_SIZE_KV + tl.arange(0, BLOCK_SIZE_KV)
-        q_tile = tl.load(Q + q_offset[:, None] * q_stride + hidden_offset[None, :], 
-            mask=(q_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim), other=0.0)
-        k_tile = tl.load(K + k_offset[:, None] * k_stride + hidden_offset[None, :], 
-            mask=(k_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim), other=0.0)
-        v_tile = tl.load(V + k_offset[:, None] * v_stride + hidden_offset[None, :], 
-            mask=(k_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim), other=0.0)
+        q_tile = tl.load(
+            Q + q_offset[:, None] * q_stride + hidden_offset[None, :],
+            mask=(q_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim),
+            other=0
+        ).to(tl.float32)
+        k_tile = tl.load(
+            K + k_offset[:, None] * k_stride + hidden_offset[None, :],
+            mask=(k_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim),
+            other=0
+        ).to(tl.float32)
+        v_tile = tl.load(
+            V + k_offset[:, None] * v_stride + hidden_offset[None, :],
+            mask=(k_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim),
+            other=0
+        ).to(tl.float32)
         score = tl.dot(q_tile, tl.trans(k_tile)) 
-        score = score / sqrt_hidden_dim
+        scale = tl.full((1,), sqrt_hidden_dim, dtype=tl.float32)
+        score = score / scale
         # 对越界的KV列进行softmax掩码：将分数置为 -inf，避免将padding列当作有效token参与max和sum
         kv_valid = k_offset[None, :] < seq
-        masked_score = tl.where(kv_valid, score, float("-inf"))
+        neg_inf = tl.full((1,), float("-inf"), dtype=tl.float32)
+        masked_score = tl.where(kv_valid, score, neg_inf)
 
         current_max = tl.max(masked_score, axis=-1)
         new_max = tl.maximum(acc_max, current_max)
@@ -59,7 +70,7 @@ def fast_attention_kernel(  Q,
 def fast_attention(Q, K, V):
     assert Q.is_cuda
     bz, seq, hidden_dim = Q.shape
-    output = torch.empty((bz, seq, hidden_dim), device=Q.device)
+    output = torch.empty((bz, seq, hidden_dim), device=Q.device, dtype=Q.dtype)
     grid = lambda meta: (triton.cdiv(seq, meta['BLOCK_SIZE_Q']), )
     sqrt_hidden_dim = hidden_dim ** 0.5
     for i in range(bz):
