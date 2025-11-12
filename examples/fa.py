@@ -163,8 +163,8 @@ def test_attention_implementations():
     
     # 创建测试数据
     batch_size, seq_len, embed_dim = 2, 1000, 256
-    query = torch.randn(batch_size, seq_len, embed_dim).cuda()
-    key = value = query.clone().cuda()  # 简化测试
+    query = torch.randn(batch_size, seq_len, embed_dim).cuda().to(torch.float16)
+    key = value = query.clone().cuda().to(torch.float16)  # 简化测试
     
     print(f"测试数据形状: query{query.shape}, key{key.shape}, value{value.shape}")
     print()
