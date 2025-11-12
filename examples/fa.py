@@ -4,7 +4,7 @@ import triton.language as tl
 import torch.nn.functional as F
 
 @triton.jit
-def fast_attention_kernel(  Q, K, V, 
+def fast_attention_kernel(  Q, K, V, sqrt_hidden_dim,
                             output, 
                             seq, 
                             hidden_dim,
@@ -21,7 +21,6 @@ def fast_attention_kernel(  Q, K, V,
     acc_denominator = tl.full((BLOCK_SIZE_Q,), 0.0, dtype=tl.float32)
     acc_max = tl.full((BLOCK_SIZE_Q,), float("-inf"), dtype=tl.float32)
     output_tile = tl.full((BLOCK_SIZE_Q, BLOCK_SIZE_HIDDEN), 0.0, dtype=tl.float32)
-    sqrt_hidden_dim = tl.sqrt(hidden_dim.float())
     for row_idx in tl.range(0, tl.cdiv(seq, BLOCK_SIZE_KV), num_stages=num_stages):
         k_offset = row_idx * BLOCK_SIZE_KV + tl.arange(0, BLOCK_SIZE_KV)
         q_tile = tl.load(Q + q_offset[:, None] * q_stride + hidden_offset[None, :], 
@@ -55,6 +54,7 @@ def fast_attention(Q, K, V):
     bz, seq, hidden_dim = Q.shape
     output = torch.empty((bz, seq, hidden_dim), device=Q.device)
     grid = lambda meta: (triton.cdiv(seq, meta['BLOCK_SIZE_Q']), )
+    sqrt_hidden_dim = torch.sqrt(hidden_dim.float()).cuda()
     for i in range(bz):
         q = Q[i]
         k = K[i]
@@ -64,6 +64,7 @@ def fast_attention(Q, K, V):
                                     k, 
                                     v, 
                                     o, 
+                                    sqrt_hidden_dim,
                                     seq, 
                                     hidden_dim, 
                                     q.stride(0), 
