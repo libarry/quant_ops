@@ -2,6 +2,8 @@ import torch
 import triton
 import triton.language as tl
 import torch.nn.functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
+
 
 @triton.autotune(
     configs=[
@@ -205,7 +207,9 @@ def test_attention_implementations():
     
     # 1. 使用PyTorch内置实现（参考基准）
     print("1. PyTorch内置实现 (参考基准)")
-    pytorch_attn = F.scaled_dot_product_attention(query, key, value)
+    # Only enable flash attention backend
+    with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+        pytorch_attn = F.scaled_dot_product_attention(query, key, value)
     print(f"   输出形状: {pytorch_attn.shape}")
     print()
 
@@ -271,33 +275,33 @@ def benchmark_fast_attention(
     header = f"{'B':>3} {'S':>6} {'H':>6}  {'PyTorch ms':>12} {'PyTorch TFLOPS':>16}  {'Triton ms':>10} {'Triton TFLOPS':>15}  {'Speedup':>8}"
     print(header)
     print("-" * len(header))
+    with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+        for B in batch_sizes:
+            for H in hidden_dims:
+                for S in seq_list:
+                    # 构造输入
+                    q = torch.randn(B, S, H, device=device, dtype=dtype)
+                    k = q.clone()
+                    v = q.clone()
 
-    for B in batch_sizes:
-        for H in hidden_dims:
-            for S in seq_list:
-                # 构造输入
-                q = torch.randn(B, S, H, device=device, dtype=dtype)
-                k = q.clone()
-                v = q.clone()
+                    # PyTorch baseline
+                    def fn_pt():
+                        return F.scaled_dot_product_attention(q, k, v)
 
-                # PyTorch baseline
-                def fn_pt():
-                    return F.scaled_dot_product_attention(q, k, v)
+                    # Triton
+                    def fn_triton():
+                        return fast_attention(q, k, v)
 
-                # Triton
-                def fn_triton():
-                    return fast_attention(q, k, v)
+                    ms_pt = bench_ms(fn_pt)
+                    ms_triton = bench_ms(fn_triton)
 
-                ms_pt = bench_ms(fn_pt)
-                ms_triton = bench_ms(fn_triton)
+                    # 近似 FLOPs（忽略 softmax 和缩放）
+                    flops = 4.0 * B * (S ** 2) * H
+                    tflops_pt = (flops / 1e12) / (ms_pt / 1e3)
+                    tflops_triton = (flops / 1e12) / (ms_triton / 1e3)
+                    speedup = ms_pt / ms_triton if ms_triton > 0 else float("inf")
 
-                # 近似 FLOPs（忽略 softmax 和缩放）
-                flops = 4.0 * B * (S ** 2) * H
-                tflops_pt = (flops / 1e12) / (ms_pt / 1e3)
-                tflops_triton = (flops / 1e12) / (ms_triton / 1e3)
-                speedup = ms_pt / ms_triton if ms_triton > 0 else float("inf")
-
-                print(f"{B:>3} {S:>6} {H:>6}  {ms_pt:12.3f} {tflops_pt:16.3f}  {ms_triton:10.3f} {tflops_triton:15.3f}  {speedup:8.2f}x")
+                    print(f"{B:>3} {S:>6} {H:>6}  {ms_pt:12.3f} {tflops_pt:16.3f}  {ms_triton:10.3f} {tflops_triton:15.3f}  {speedup:8.2f}x")
 
 if __name__ == "__main__":
     # 运行测试
