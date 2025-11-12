@@ -21,6 +21,7 @@ def fast_attention_kernel(  Q, K, V,
     acc_denominator = tl.full((BLOCK_SIZE_Q,), 0.0, dtype=tl.float32)
     acc_max = tl.full((BLOCK_SIZE_Q,), float("-inf"), dtype=tl.float32)
     output_tile = tl.full((BLOCK_SIZE_Q, BLOCK_SIZE_HIDDEN), 0.0, dtype=tl.float32)
+    sqrt_hidden_dim = tl.sqrt(hidden_dim.float())
     for row_idx in tl.range(0, tl.cdiv(seq, BLOCK_SIZE_KV), num_stages=num_stages):
         k_offset = row_idx * BLOCK_SIZE_KV + tl.arange(0, BLOCK_SIZE_KV)
         q_tile = tl.load(Q + q_offset[:, None] * q_stride + hidden_offset[None, :], 
@@ -29,7 +30,7 @@ def fast_attention_kernel(  Q, K, V,
             mask=k_offset[:, None] < seq and hidden_offset[None, :] < hidden_dim, other=0.0)
         v_tile = tl.load(V + k_offset[:, None] * v_stride + hidden_offset[None, :], 
             mask=q_offset[:, None] < seq and hidden_offset[None, :] < hidden_dim, other=0.0)
-        score = tl.dot(q_tile, tl.trans(k_tile)) / tl.sqrt(hidden_dim)
+        score = tl.dot(q_tile, tl.trans(k_tile)) / sqrt_hidden_dim
 
         current_max = tl.max(score, axis=-1)
         new_max = tl.maximum(acc_max, current_max)
