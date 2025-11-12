@@ -65,6 +65,7 @@ def fast_attention(Q, K, V):
                                     k.stride(0), 
                                     v.stride(0), 
                                     o.stride(0), 
+                                    BLOCK_SIZE_HIDDEN=512,
                                     BLOCK_SIZE_Q=32, 
                                     BLOCK_SIZE_KV=32, 
                                     num_stages=1)
