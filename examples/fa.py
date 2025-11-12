@@ -176,15 +176,15 @@ def test_attention_implementations():
     print()
 
     # 2. triton实现
-    print("2. 朴素Scaled Dot-Product Attention")
+    print("2. triton Attention")
     naive_attn = fast_attention(query, key, value)
     naive_diff = (pytorch_attn - naive_attn).abs().max()
     print(f"   输出形状: {naive_attn.shape}")
     print(f"   与基准最大差异: {naive_diff:.6f}")
     print()
 
-    # 4. Flash Attention V1实现
-    print("4. Flash Attention V1")
+    # 4. Flash Attention V1 pseudo实现
+    print("4. Flash Attention V1 pseudo实现")
     flash_attn = flash_attention_v1_fake(query, key, value)
     flash_diff = (pytorch_attn - flash_attn).abs().max()
     print(f"   输出形状: {flash_attn.shape}")
