@@ -4,8 +4,11 @@ import triton.language as tl
 import torch.nn.functional as F
 
 @triton.jit
-def fast_attention_kernel(  Q, K, V, sqrt_hidden_dim,
+def fast_attention_kernel(  Q, 
+                            K, 
+                            V, 
                             output, 
+                            sqrt_hidden_dim,
                             seq, 
                             hidden_dim,
                             q_stride, k_stride, v_stride, output_stride,
