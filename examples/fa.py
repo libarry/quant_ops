@@ -81,6 +81,75 @@ def fast_attention(Q, K, V):
                                     num_stages=1)
     return output
 
+def flash_attention_v1_fake(query, key, value, mask=None, tile_size=32):
+    """
+    Flash Attention V1实现
+    完全在线计算，避免存储任何中间attention矩阵
+    最高效的内存使用方式
+    
+    Args:
+        query: [batch_size, seq_len, embed_dim]
+        key: [batch_size, seq_len, embed_dim]
+        value: [batch_size, seq_len, embed_dim]
+        mask: 可选的attention mask
+        tile_size: 分块大小
+        
+    Returns:
+        attention_output: [batch_size, seq_len, embed_dim]
+    """
+    key_dim = query.size(-1)
+    batch_size, seq_len, embed_dim = query.size()
+    
+    # 初始化累积变量
+    cumulative_denominator = torch.zeros(batch_size, seq_len, device=query.device)
+    cumulative_max = torch.full((batch_size, seq_len), -torch.inf, device=query.device)
+    
+    # 初始化输出张量
+    attention_output = torch.zeros(batch_size, seq_len, embed_dim, device=query.device)
+    
+    # 分块处理：完全在线计算
+    for chunk_start in range(0, seq_len, tile_size):
+        chunk_end = chunk_start + tile_size
+        
+        # 提取当前分块的key和value
+        key_chunk = key[..., chunk_start:chunk_end, :].clone()
+        value_chunk = value[..., chunk_start:chunk_end, :].clone()
+        
+        # 计算当前分块的attention分数
+        # Q @ K_chunk^T / sqrt(d_k)
+        scores_chunk = query @ key_chunk.transpose(-2, -1) / key_dim ** 0.5
+        
+        # 计算当前分块的最大值
+        chunk_max = scores_chunk.max(dim=-1, keepdim=False).values
+        
+        # 更新全局最大值
+        new_max = torch.maximum(cumulative_max, chunk_max)
+        
+        # 数值稳定化并指数化
+        stabilized_scores = scores_chunk - new_max.unsqueeze(-1)
+        exp_scores = stabilized_scores.exp()
+        
+        # 计算新的累积分母
+        new_denominator = cumulative_denominator * (cumulative_max - new_max).exp() + \
+                         exp_scores.sum(dim=-1, keepdim=False)
+        
+        # 更新输出：在线累积attention结果
+        # 公式推导：
+        # output_new = (output_old * d_old * exp(m_old - m_new) + score_chunk @ V_chunk) / d_new
+        scale_factor_old = (cumulative_denominator / new_denominator).unsqueeze(-1)
+        max_adjustment = (cumulative_max - new_max).exp().unsqueeze(-1)
+        
+        attention_output = attention_output * scale_factor_old * max_adjustment + \
+                          (exp_scores @ value_chunk) / new_denominator.unsqueeze(-1)
+        
+        # 更新累积变量
+        cumulative_max = new_max
+        cumulative_denominator = new_denominator
+    
+    return attention_output
+
+
+
 def test_attention_implementations():
     """
     测试三种attention实现的正确性和一致性
@@ -103,12 +172,20 @@ def test_attention_implementations():
     print(f"   输出形状: {pytorch_attn.shape}")
     print()
 
-    # 2. 朴素实现
+    # 2. triton实现
     print("2. 朴素Scaled Dot-Product Attention")
     naive_attn = fast_attention(query, key, value)
     naive_diff = (pytorch_attn - naive_attn).abs().max()
     print(f"   输出形状: {naive_attn.shape}")
     print(f"   与基准最大差异: {naive_diff:.6f}")
+    print()
+
+    # 4. Flash Attention V1实现
+    print("4. Flash Attention V1")
+    flash_attn = flash_attention_v1_fake(query, key, value)
+    flash_diff = (pytorch_attn - flash_attn).abs().max()
+    print(f"   输出形状: {flash_attn.shape}")
+    print(f"   与基准最大差异: {flash_diff:.6f}")
     print()
 
 if __name__ == "__main__":
