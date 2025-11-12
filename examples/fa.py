@@ -54,7 +54,7 @@ def fast_attention(Q, K, V):
     bz, seq, hidden_dim = Q.shape
     output = torch.empty((bz, seq, hidden_dim), device=Q.device)
     grid = lambda meta: (triton.cdiv(seq, meta['BLOCK_SIZE_Q']), )
-    sqrt_hidden_dim = torch.sqrt(hidden_dim.float())
+    sqrt_hidden_dim = hidden_dim ** 0.5
     for i in range(bz):
         q = Q[i]
         k = K[i]
