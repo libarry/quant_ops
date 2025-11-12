@@ -6,15 +6,17 @@ import torch.nn.functional as F
 @triton.jit
 def fast_attention_kernel(  Q, K, V, 
                             output, 
-                            seq, hidden_dim,
+                            seq, 
+                            hidden_dim,
                             q_stride, k_stride, v_stride, output_stride,
+                            BLOCK_SIZE_HIDDEN: tl.constexpr,
                             BLOCK_SIZE_Q: tl.constexpr,
                             BLOCK_SIZE_KV: tl.constexpr,
                             num_stages: tl.constexpr):
     row_start = tl.program_id(0)
 
     q_offset = row_start * BLOCK_SIZE_Q + tl.arange(0, BLOCK_SIZE_Q)
-    hidden_offset = tl.arange(0, hidden_dim)
+    hidden_offset = tl.arange(0, BLOCK_SIZE_HIDDEN)
 
     acc_denominator = tl.full((BLOCK_SIZE_Q,), 0.0, dtype=tl.float32)
     acc_max = tl.full((BLOCK_SIZE_Q,), float("-inf"), dtype=tl.float32)
@@ -36,11 +38,11 @@ def fast_attention_kernel(  Q, K, V,
         current_denominator = acc_denominator * (acc_max - new_max).exp() + exp_score.sum(axis=-1)
         scale_factor = (acc_denominator / current_denominator)
         max_adjustment = (acc_max - new_max).exp()
-        output_tile = output_tile * scale_factor[:, None] * max_adjustment[:, None] + (exp_score @ v_tile) / current_denominator[:, None]
+        output_tile = output_tile * scale_factor[:, None] * max_adjustment[:, None] + (exp_score @ v_tile[:, :hidden_dim]) / current_denominator[:, None]
         acc_max = new_max
         acc_denominator = current_denominator
 
-    tl.store(output + q_offset[:, None] * output_stride + hidden_offset[None, :], output_tile)
+    tl.store(   output + q_offset[:, None] * output_stride + hidden_offset[None, :], output_tile)
 
 
 def fast_attention(Q, K, V):
