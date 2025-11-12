@@ -46,7 +46,7 @@ def fast_attention_kernel(  Q, K, V,
 def fast_attention(Q, K, V):
     assert Q.is_cuda
     bz, seq, hidden_dim = Q.shape
-    output = Q.empty_like((bz, seq, hidden_dim))
+    output = torch.empty((bz, seq, hidden_dim), device=Q.device)
     grid = lambda meta: (triton.cdiv(seq, meta['BLOCK_SIZE_Q']), )
     for i in range(bz):
         q = Q[i]
