@@ -202,6 +202,82 @@ def test_attention_implementations():
     print(f"   与基准最大差异: {flash_diff:.6f}")
     print()
 
+@torch.inference_mode()
+def benchmark_fast_attention(
+    batch_sizes=(1,),
+    # seq_list=(256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096),
+    seq_list=(1000,2000),
+    hidden_dims=(256,),
+    dtype=torch.float16,
+    warmup=25,
+    rep=100,
+    seed=0,
+):
+    """
+    参考 Triton 矩阵乘法教程的基准设置，使用 CUDA events 进行计时：
+    - warmup 次预热
+    - rep 次重复，取平均时延
+    - 打印每组形状下 PyTorch 和 Triton 的耗时与 TFLOPS 估算
+    估算 FLOPs：约 4 * B * S^2 * H（QK^T 与 PV 两个 GEMM 的近似量，不含 softmax）
+    """
+    torch.manual_seed(seed)
+    device = torch.device("cuda")
+    torch.backends.cuda.matmul.allow_tf32 = True
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
+
+    def bench_ms(fn):
+        # warmup
+        for _ in range(warmup):
+            fn()
+        torch.cuda.synchronize()
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
+        for _ in range(rep):
+            fn()
+        end.record()
+        torch.cuda.synchronize()
+        total_ms = start.elapsed_time(end)
+        return total_ms / rep
+
+    print("=" * 60)
+    print("fast_attention vs. torch.nn.functional.scaled_dot_product_attention 基准测试")
+    print(f"warmup={warmup}, rep={rep}, dtype={dtype}")
+    print("=" * 60)
+    header = f"{'B':>3} {'S':>6} {'H':>6}  {'PyTorch ms':>12} {'PyTorch TFLOPS':>16}  {'Triton ms':>10} {'Triton TFLOPS':>15}  {'Speedup':>8}"
+    print(header)
+    print("-" * len(header))
+
+    for B in batch_sizes:
+        for H in hidden_dims:
+            for S in seq_list:
+                # 构造输入
+                q = torch.randn(B, S, H, device=device, dtype=dtype)
+                k = q.clone()
+                v = q.clone()
+
+                # PyTorch baseline
+                def fn_pt():
+                    return F.scaled_dot_product_attention(q, k, v)
+
+                # Triton
+                def fn_triton():
+                    return fast_attention(q, k, v)
+
+                ms_pt = bench_ms(fn_pt)
+                ms_triton = bench_ms(fn_triton)
+
+                # 近似 FLOPs（忽略 softmax 和缩放）
+                flops = 4.0 * B * (S ** 2) * H
+                tflops_pt = (flops / 1e12) / (ms_pt / 1e3)
+                tflops_triton = (flops / 1e12) / (ms_triton / 1e3)
+                speedup = ms_pt / ms_triton if ms_triton > 0 else float("inf")
+
+                print(f"{B:>3} {S:>6} {H:>6}  {ms_pt:12.3f} {tflops_pt:16.3f}  {ms_triton:10.3f} {tflops_triton:15.3f}  {speedup:8.2f}x")
+
 if __name__ == "__main__":
     # 运行测试
     test_attention_implementations()
+    # 如需运行基准，可取消下行注释
+    benchmark_fast_attention()
