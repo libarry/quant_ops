@@ -20,7 +20,7 @@ def fast_attention_kernel(  Q, K, V,
 
     acc_denominator = tl.full((BLOCK_SIZE_Q,), 0.0, dtype=tl.float32)
     acc_max = tl.full((BLOCK_SIZE_Q,), float("-inf"), dtype=tl.float32)
-    output_tile = tl.full((BLOCK_SIZE_Q, hidden_dim), 0.0, dtype=tl.float32)
+    output_tile = tl.full((BLOCK_SIZE_Q, BLOCK_SIZE_HIDDEN), 0.0, dtype=tl.float32)
     for row_idx in tl.range(0, tl.cdiv(seq, BLOCK_SIZE_KV), num_stages=num_stages):
         k_offset = row_idx * BLOCK_SIZE_KV + tl.arange(0, BLOCK_SIZE_KV)
         q_tile = tl.load(Q + q_offset[:, None] * q_stride + hidden_offset[None, :], 
@@ -38,11 +38,15 @@ def fast_attention_kernel(  Q, K, V,
         current_denominator = acc_denominator * (acc_max - new_max).exp() + exp_score.sum(axis=-1)
         scale_factor = (acc_denominator / current_denominator)
         max_adjustment = (acc_max - new_max).exp()
-        output_tile = output_tile * scale_factor[:, None] * max_adjustment[:, None] + (exp_score @ v_tile[:, :hidden_dim]) / current_denominator[:, None]
+        output_tile = output_tile * scale_factor[:, None] * max_adjustment[:, None] + (exp_score @ v_tile) / current_denominator[:, None]
         acc_max = new_max
         acc_denominator = current_denominator
 
-    tl.store(   output + q_offset[:, None] * output_stride + hidden_offset[None, :], output_tile)
+    tl.store(
+        output + q_offset[:, None] * output_stride + hidden_offset[None, :],
+        output_tile,
+        mask=(q_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim)
+    )
 
 
 def fast_attention(Q, K, V):
