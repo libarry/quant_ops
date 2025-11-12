@@ -29,7 +29,7 @@ def fast_attention_kernel(  Q, K, V,
             mask=k_offset[:, None] < seq and hidden_offset[None, :] < hidden_dim, other=0.0)
         v_tile = tl.load(V + k_offset[:, None] * v_stride + hidden_offset[None, :], 
             mask=q_offset[:, None] < seq and hidden_offset[None, :] < hidden_dim, other=0.0)
-        score = tl.dot(q_tile, tl.trans(k_tile)) / hidden_dim ** 0.5
+        score = tl.dot(q_tile, tl.trans(k_tile)) / tl.sqrt(hidden_dim)
 
         current_max = tl.max(score, axis=-1)
         new_max = tl.maximum(acc_max, current_max)
