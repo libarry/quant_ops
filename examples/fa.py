@@ -154,7 +154,7 @@ def flash_attention_v1_fake(query, key, value, mask=None, tile_size=32):
         max_adjustment = (cumulative_max - new_max).exp().unsqueeze(-1)
         
         attention_output = attention_output * scale_factor_old * max_adjustment + \
-                          (exp_scores @ value_chunk) / new_denominator.unsqueeze(-1)
+                          (exp_scores @ value_chunk.float()).to(attention_output.dtype) / new_denominator.unsqueeze(-1)
         
         # 更新累积变量
         cumulative_max = new_max
