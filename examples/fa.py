@@ -3,6 +3,31 @@ import triton
 import triton.language as tl
 import torch.nn.functional as F
 
+@triton.autotune(
+    configs=[
+        triton.Config(
+            {'BLOCK_SIZE_HIDDEN': 128, 'BLOCK_SIZE_Q': 32, 'BLOCK_SIZE_KV': 32, 'num_stages': 1},
+            num_warps=4,
+        ),
+        triton.Config(
+            {'BLOCK_SIZE_HIDDEN': 256, 'BLOCK_SIZE_Q': 32, 'BLOCK_SIZE_KV': 32, 'num_stages': 2},
+            num_warps=4,
+        ),
+        triton.Config(
+            {'BLOCK_SIZE_HIDDEN': 256, 'BLOCK_SIZE_Q': 64, 'BLOCK_SIZE_KV': 32, 'num_stages': 2},
+            num_warps=8,
+        ),
+        triton.Config(
+            {'BLOCK_SIZE_HIDDEN': 512, 'BLOCK_SIZE_Q': 32, 'BLOCK_SIZE_KV': 32, 'num_stages': 1},
+            num_warps=8,
+        ),
+        triton.Config(
+            {'BLOCK_SIZE_HIDDEN': 512, 'BLOCK_SIZE_Q': 64, 'BLOCK_SIZE_KV': 32, 'num_stages': 2},
+            num_warps=8,
+        ),
+    ],
+    key=['seq', 'hidden_dim'],
+)
 @triton.jit
 def fast_attention_kernel(  Q, 
                             K, 
@@ -78,21 +103,19 @@ def fast_attention(Q, K, V):
         k = K[i]
         v = V[i]
         o = output[i]
-        fast_attention_kernel[grid](q, 
-                                    k, 
-                                    v, 
-                                    o, 
-                                    sqrt_hidden_dim,
-                                    seq, 
-                                    hidden_dim, 
-                                    q.stride(0), 
-                                    k.stride(0), 
-                                    v.stride(0), 
-                                    o.stride(0), 
-                                    BLOCK_SIZE_HIDDEN=512,
-                                    BLOCK_SIZE_Q=32, 
-                                    BLOCK_SIZE_KV=32, 
-                                    num_stages=1)
+        fast_attention_kernel[grid](
+            q,
+            k,
+            v,
+            o,
+            sqrt_hidden_dim,
+            seq,
+            hidden_dim,
+            q.stride(0),
+            k.stride(0),
+            v.stride(0),
+            o.stride(0),
+        )
     return output
 
 def flash_attention_v1_fake(query, key, value, mask=None, tile_size=32):
