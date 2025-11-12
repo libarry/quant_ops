@@ -97,3 +97,7 @@ def test_attention_implementations():
     print(f"   输出形状: {naive_attn.shape}")
     print(f"   与基准最大差异: {naive_diff:.6f}")
     print()
+
+if __name__ == "__main__":
+    # 运行测试
+    test_attention_implementations()
