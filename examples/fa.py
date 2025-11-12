@@ -162,7 +162,7 @@ def test_attention_implementations():
     print("=" * 60)
     
     # 创建测试数据
-    batch_size, seq_len, embed_dim = 2, 128, 64
+    batch_size, seq_len, embed_dim = 2, 1000, 256
     query = torch.randn(batch_size, seq_len, embed_dim).cuda()
     key = value = query.clone().cuda()  # 简化测试
     
