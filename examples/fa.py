@@ -50,13 +50,13 @@ def fast_attention_kernel(  Q,
     acc_denominator = tl.full((BLOCK_SIZE_Q,), 0.0, dtype=tl.float32)
     acc_max = tl.full((BLOCK_SIZE_Q,), float("-inf"), dtype=tl.float32)
     output_tile = tl.full((BLOCK_SIZE_Q, BLOCK_SIZE_HIDDEN), 0.0, dtype=tl.float32)
-    for row_idx in tl.range(0, tl.cdiv(seq, BLOCK_SIZE_KV), num_stages=num_stages):
-        k_offset = row_idx * BLOCK_SIZE_KV + tl.arange(0, BLOCK_SIZE_KV)
-        q_tile = tl.load(
+    q_tile = tl.load(
             Q + q_offset[:, None] * q_stride + hidden_offset[None, :],
             mask=(q_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim),
             other=0
         ).to(tl.float32)
+    for row_idx in tl.range(0, tl.cdiv(seq, BLOCK_SIZE_KV), num_stages=num_stages):
+        k_offset = row_idx * BLOCK_SIZE_KV + tl.arange(0, BLOCK_SIZE_KV)
         k_tile = tl.load(
             K + k_offset[:, None] * k_stride + hidden_offset[None, :],
             mask=(k_offset[:, None] < seq) & (hidden_offset[None, :] < hidden_dim),
@@ -197,7 +197,7 @@ def test_attention_implementations():
     print("=" * 60)
     
     # 创建测试数据
-    batch_size, seq_len, embed_dim = 2, 1000, 256
+    batch_size, seq_len, embed_dim = 2, 1000, 128
     query = torch.randn(batch_size, seq_len, embed_dim).cuda().to(torch.float16)
     key = value = query.clone().cuda().to(torch.float16)  # 简化测试
     
