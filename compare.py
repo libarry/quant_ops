@@ -41,7 +41,7 @@ def main():
     list1 = data1.get('details', {}) if isinstance(data1, dict) else data1
     list2 = data2.get('details', {}) if isinstance(data2, dict) else data2
     
-    if not isinstance(list1, list) or not isinstance(list2, list):
+    if not isinstance(list1, dict) or not isinstance(list2, dict):
         print("Error: Could not find a list of details/items in the files.")
         sys.exit(1)
 
